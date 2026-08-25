@@ -53,4 +53,4 @@ Tests use fake providers and do not make network requests:
 ```
 ## Automated review
 
-Pull requests receive an advisory review from Codex. Human maintainers retain final approval and merge authority.
+Codex findings supplement automated tests and human judgment; they do not replace either.
