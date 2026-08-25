@@ -51,3 +51,6 @@ Tests use fake providers and do not make network requests:
 ```bash
 .venv/bin/python -m unittest discover -s tests
 ```
+## Automated review
+
+Pull requests receive an advisory review from Codex. Human maintainers retain final approval and merge authority.
