@@ -1,0 +1,5 @@
+openai
+anthropic
+pydantic
+python-dotenv
+google-genai

@@ -1,0 +1,54 @@
+from google import genai
+from google.genai import types
+from pydantic import BaseModel, Field
+
+from blackbird.contracts.reasoning_response import ReasoningResponse
+from blackbird.providers.base import BaseProvider
+
+
+class GeminiReasoningResult(BaseModel):
+    self_confidence: float = Field(ge=0.0, le=1.0)
+    response: str
+
+
+class GeminiProvider(BaseProvider):
+    def __init__(
+        self,
+        model: str = "gemini-3.6-flash",
+        client: genai.Client | None = None,
+    ):
+        self.model = model
+        self.client = client or genai.Client()
+
+    async def reason(self, prompt: str) -> ReasoningResponse:
+        result = await self.client.aio.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=(
+                    "Analyze the user's request carefully. "
+                    "Return a concise answer and a confidence score "
+                    "between 0.0 and 1.0."
+                ),
+                response_mime_type="application/json",
+                response_schema=GeminiReasoningResult,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True
+                ),
+            ),
+        )
+        
+
+        if result.parsed is None:
+            raise RuntimeError(
+                "Gemini returned no structured reasoning result."
+            )
+
+        parsed = GeminiReasoningResult.model_validate(result.parsed)
+
+        return ReasoningResponse(
+            provider="gemini",
+            self_confidence=parsed.self_confidence,
+            response=parsed.response,
+        )
+    
