@@ -14,6 +14,22 @@ class BlackbirdCoordinator:
         confidence_threshold: float = 0.8,
         minimum_responses: int = 3,
     ):
+        if not providers:
+            raise ValueError("At least one provider is required.")
+
+        if not 0.0 <= confidence_threshold <= 1.0:
+            raise ValueError(
+                "confidence_threshold must be between 0.0 and 1.0."
+            )
+
+        if minimum_responses < 1:
+            raise ValueError("minimum_responses must be at least 1.")
+
+        if minimum_responses > len(providers):
+            raise ValueError(
+                "minimum_responses cannot exceed "
+                "the configured provider count."
+            )
         self.providers = providers
         self.confidence_threshold = confidence_threshold
         self.minimum_responses = minimum_responses
@@ -104,6 +120,7 @@ class BlackbirdCoordinator:
         )
 
     async def reason(self, prompt: str) -> BlackbirdResult:
+        if not prompt or not prompt.strip(): raise ValueError("Prompt must not be empty.")
         first_round = await self._run_round(
             prompt=prompt,
             round_number=1,

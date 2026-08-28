@@ -1,62 +1,123 @@
 import asyncio
-from time import perf_counter
+import unittest
 
-from dotenv import load_dotenv
-
+from blackbird.contracts import ReasoningResponse
 from blackbird.coordinator import BlackbirdCoordinator
-from blackbird.providers.anthropic_provider import AnthropicProvider
-from blackbird.providers.gemini_provider import GeminiProvider
-from blackbird.providers.openai_provider import OpenAIProvider
+from blackbird.providers.base import BaseProvider
 
 
-load_dotenv(".env", override=True)
+class FakeProvider(BaseProvider):
+    def __init__(
+        self,
+        name: str,
+        confidence: float = 0.9,
+    ) -> None:
+        self.name = name
+        self.confidence = confidence
+        self.prompts: list[str] = []
 
+    async def reason(self, prompt: str) -> ReasoningResponse:
+        self.prompts.append(prompt)
+        await asyncio.sleep(0)
 
-async def main():
-    coordinator = BlackbirdCoordinator(
-        providers=[
-            OpenAIProvider(),
-            AnthropicProvider(),
-            GeminiProvider(),
-        ],
-        confidence_threshold=0.8,
-    )
-
-    start = perf_counter()
-
-    result = await coordinator.reason(
-        "Should production systems use multiple independent LLMs "
-        "for high-impact decisions? Explain the tradeoffs."
-    )
-
-    elapsed = perf_counter() - start
-
-    for reasoning_round in result.rounds:
-        print(f"\n========== ROUND {reasoning_round.round_number} ==========")
-
-        for response in reasoning_round.responses:
-            print(f"\n--- {response.provider.upper()} ---")
-            print(f"Confidence: {response.self_confidence}")
-            print(response.response)
-
-        print(f"\nQuorum met: {reasoning_round.quorum_met}")
-
-        for failure in reasoning_round.failures:
-            print(f"FAILED: {failure.provider} — "
-            f"{failure.error_type}: {failure.message}"
+        return ReasoningResponse(
+            provider=self.name,
+            self_confidence=self.confidence,
+            response=f"{self.name}: {prompt}",
         )
 
-    selected = result.selected_response
 
-    print("\n========== BLACKBIRD FINAL DECISION ==========")
-    print(f"Selected provider: {selected.provider}")
-    print(f"Selected confidence: {selected.self_confidence}")
-    print(f"Final quorum met: {result.quorum_met}")
-    print(f"Threshold met: {result.threshold_met}")
-    print(f"Total runtime: {elapsed:.2f} seconds")
-    print("\nSelected response:")
-    print(selected.response)
+class FailingProvider(BaseProvider):
+    async def reason(self, prompt: str) -> ReasoningResponse:
+        await asyncio.sleep(0)
+        raise RuntimeError("Simulated provider failure.")
+
+
+class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_runs_two_rounds_and_selects_best_response(self) -> None:
+        first = FakeProvider("first", 0.80)
+        second = FakeProvider("second", 0.85)
+        third = FakeProvider("third", 0.95)
+
+        coordinator = BlackbirdCoordinator(
+            [first, second, third],
+            confidence_threshold=0.8,
+            minimum_responses=3,
+        )
+
+        result = await coordinator.reason("test prompt")
+
+        self.assertEqual(
+            [item.round_number for item in result.rounds],
+            [1, 2],
+        )
+        self.assertEqual(result.selected_response.provider, "third")
+        self.assertTrue(result.quorum_met)
+        self.assertTrue(result.threshold_met)
+
+        self.assertEqual(len(first.prompts), 2)
+        self.assertEqual(len(second.prompts), 2)
+        self.assertEqual(len(third.prompts), 2)
+
+        self.assertIn(
+            "Original request:\ntest prompt",
+            first.prompts[1],
+        )
+
+    async def test_provider_failure_prevents_quorum(self) -> None:
+        coordinator = BlackbirdCoordinator(
+            [
+                FakeProvider("first"),
+                FailingProvider(),
+                FakeProvider("third"),
+            ],
+            minimum_responses=3,
+        )
+
+        result = await coordinator.reason("test prompt")
+
+        self.assertFalse(result.quorum_met)
+        self.assertFalse(result.threshold_met)
+
+        for reasoning_round in result.rounds:
+            self.assertEqual(len(reasoning_round.responses), 2)
+            self.assertEqual(len(reasoning_round.failures), 1)
+            self.assertEqual(
+                reasoning_round.failures[0].provider,
+                "failing",
+            )
+
+    async def test_rejects_blank_prompt(self) -> None:
+        coordinator = BlackbirdCoordinator(
+            [FakeProvider("fake")],
+            minimum_responses=1,
+        )
+
+        with self.assertRaisesRegex(ValueError, "must not be empty"):
+            await coordinator.reason("   ")
+
+    def test_requires_a_provider(self) -> None:
+        with self.assertRaisesRegex(ValueError, "At least one provider"):
+            BlackbirdCoordinator([])
+
+    def test_rejects_invalid_confidence_threshold(self) -> None:
+        with self.assertRaisesRegex(ValueError, "between 0.0 and 1.0"):
+            BlackbirdCoordinator(
+                [FakeProvider("fake")],
+                confidence_threshold=1.1,
+                minimum_responses=1,
+            )
+
+    def test_rejects_impossible_quorum(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "cannot exceed",
+        ):
+            BlackbirdCoordinator(
+                [FakeProvider("fake")],
+                minimum_responses=3,
+            )
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    unittest.main()
