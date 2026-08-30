@@ -25,7 +25,10 @@ class FakeProvider(BaseProvider):
             self_confidence=self.confidence,
             response=f"{self.name}: {prompt}",
         )
-
+class MalformedProvider(BaseProvider):
+    async def reason(self, prompt: str) -> ReasoningResponse:
+        await asyncio.sleep(0)
+        return {"unexpected": "value"}  # type: ignore[return-value]
 
 class FailingProvider(BaseProvider):
     async def reason(self, prompt: str) -> ReasoningResponse:
@@ -96,6 +99,29 @@ class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "must not be empty"):
             await coordinator.reason("   ")
 
+    async def test_malformed_provider_response_is_isolated(self) -> None:
+        coordinator = BlackbirdCoordinator(
+            [
+                FakeProvider("first"),
+                MalformedProvider(),
+                FakeProvider("third"),
+            ],
+            minimum_responses=3,
+        )
+
+        result = await coordinator.reason("test prompt")
+
+        self.assertFalse(result.quorum_met)
+        self.assertFalse(result.threshold_met)
+
+        for reasoning_round in result.rounds:
+            self.assertEqual(len(reasoning_round.responses), 2)
+            self.assertEqual(len(reasoning_round.failures), 1)
+            self.assertEqual(
+                reasoning_round.failures[0].error_type,
+                "InvalidProviderResponse",
+            )
+            
     def test_requires_a_provider(self) -> None:
         with self.assertRaisesRegex(ValueError, "At least one provider"):
             BlackbirdCoordinator([])

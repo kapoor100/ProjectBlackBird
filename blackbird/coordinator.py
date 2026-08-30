@@ -67,9 +67,19 @@ class BlackbirdCoordinator:
                         message=str(result),
                     )
                 )
+            elif not isinstance(result, ReasoningResponse):
+                failures.append(
+                    ProviderFailure(
+                        provider=self._provider_name(provider),
+                        error_type="InvalidProviderResponse",
+                        message=(
+                            "Expected ReasoningResponse, "
+                            f"received {type(result).__name__}."
+                        ),
+                    )
+                )
             else:
                 responses.append(result)
-
         if not responses:
             raise RuntimeError(
                 f"All providers failed during round {round_number}."
@@ -115,7 +125,7 @@ class BlackbirdCoordinator:
             "Critically evaluate the responses above. "
             "Identify agreements, disagreements, unsupported assumptions, "
             "and possible shared errors. Then provide your strongest revised "
-            "answer. Calibrate self-confidence based on evidence and reasoning, "
+            "answer. Calibrate self-confidence based on evidence and reasoning,"
             "not merely on agreement with another provider."
         )
 
