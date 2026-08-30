@@ -4,6 +4,8 @@ import unittest
 from blackbird.contracts import ReasoningResponse
 from blackbird.coordinator import BlackbirdCoordinator
 from blackbird.providers.base import BaseProvider
+from typing import Literal
+from blackbird.contracts import ProviderBallot
 
 
 class FakeProvider(BaseProvider):
@@ -11,10 +13,15 @@ class FakeProvider(BaseProvider):
         self,
         name: str,
         confidence: float = 0.9,
+        vote_for: Literal["A", "B", "C"] = "A",
+        vote_confidence: float = 0.9,
     ) -> None:
         self.name = name
         self.confidence = confidence
+        self.vote_for = vote_for
+        self.vote_confidence = vote_confidence
         self.prompts: list[str] = []
+        self.vote_prompts: list[str] = []
 
     async def reason(self, prompt: str) -> ReasoningResponse:
         self.prompts.append(prompt)
@@ -25,15 +32,39 @@ class FakeProvider(BaseProvider):
             self_confidence=self.confidence,
             response=f"{self.name}: {prompt}",
         )
+
+    async def vote(self, prompt: str) -> ProviderBallot:
+        self.vote_prompts.append(prompt)
+        await asyncio.sleep(0)
+
+        return ProviderBallot(
+            voter=self.name,
+            candidate_id=self.vote_for,
+            selection_confidence=self.vote_confidence,
+            rationale=f"{self.name} selected {self.vote_for}.",
+        )
+
+
 class MalformedProvider(BaseProvider):
     async def reason(self, prompt: str) -> ReasoningResponse:
         await asyncio.sleep(0)
         return {"unexpected": "value"}  # type: ignore[return-value]
 
+    async def vote(self, prompt: str) -> ProviderBallot:
+        raise AssertionError(
+            "Voting must not run without reasoning quorum."
+        )
+
+
 class FailingProvider(BaseProvider):
     async def reason(self, prompt: str) -> ReasoningResponse:
         await asyncio.sleep(0)
         raise RuntimeError("Simulated provider failure.")
+
+    async def vote(self, prompt: str) -> ProviderBallot:
+        raise AssertionError(
+            "Voting must not run without reasoning quorum."
+        )
 
 
 class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
@@ -121,7 +152,7 @@ class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
                 reasoning_round.failures[0].error_type,
                 "InvalidProviderResponse",
             )
-            
+                       
     def test_requires_a_provider(self) -> None:
         with self.assertRaisesRegex(ValueError, "At least one provider"):
             BlackbirdCoordinator([])

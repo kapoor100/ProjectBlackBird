@@ -1,9 +1,10 @@
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
-
+from typing import Literal
 from blackbird.contracts.reasoning_response import ReasoningResponse
 from blackbird.providers.base import BaseProvider
+from blackbird.contracts.provider_ballot import ProviderBallot
 
 
 class GeminiReasoningResult(BaseModel):
@@ -37,8 +38,7 @@ class GeminiProvider(BaseProvider):
                 ),
             ),
         )
-        
-
+ 
         if result.parsed is None:
             raise RuntimeError(
                 "Gemini returned no structured reasoning result."
@@ -51,4 +51,3 @@ class GeminiProvider(BaseProvider):
             self_confidence=parsed.self_confidence,
             response=parsed.response,
         )
-    
