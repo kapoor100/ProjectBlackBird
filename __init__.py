@@ -1,6 +1,5 @@
-from blackbird.coordinator import BlackbirdCoordinator, ReasoningCoordinator
+from blackbird.coordinator import BlackbirdCoordinator
 
 __all__ = [
     "BlackbirdCoordinator",
-    "ReasoningCoordinator",
 ]

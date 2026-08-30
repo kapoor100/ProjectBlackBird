@@ -13,7 +13,7 @@ class OpenAIReasoningResult(BaseModel):
 class OpenAIProvider(BaseProvider):
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
+        model: str = "gpt-5.6-sol",
         client: AsyncOpenAI | None = None,
     ):
         self.model = model

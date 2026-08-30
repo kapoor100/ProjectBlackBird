@@ -7,4 +7,5 @@ from blackbird.contracts.reasoning_round import ReasoningRound
 class BlackbirdResult(BaseModel):
     rounds: list[ReasoningRound]
     selected_response: ReasoningResponse
+    quorum_met: bool
     threshold_met: bool
