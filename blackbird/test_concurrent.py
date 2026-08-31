@@ -104,8 +104,11 @@ class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rejects_blank_prompt(self) -> None:
         coordinator = BlackbirdCoordinator(
-            [FakeProvider("fake")],
-            minimum_responses=1,
+            [
+                FakeProvider("first"),
+                FakeProvider("second"),
+                FakeProvider("third"),
+            ],
         )
 
         with self.assertRaisesRegex(ValueError, "must not be empty"):
@@ -118,20 +121,35 @@ class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
     def test_rejects_invalid_confidence_threshold(self) -> None:
         with self.assertRaisesRegex(ValueError, "between 0.0 and 1.0"):
             BlackbirdCoordinator(
-                [FakeProvider("fake")],
+                [
+                    FakeProvider("first"),
+                    FakeProvider("second"),
+                    FakeProvider("third"),
+                ],
                 confidence_threshold=1.1,
-                minimum_responses=1,
             )
 
-    def test_rejects_impossible_quorum(self) -> None:
+    def test_requires_exactly_three_providers(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            "cannot exceed",
+            "Exactly three providers",
         ):
             BlackbirdCoordinator(
                 [FakeProvider("fake")],
-                minimum_responses=3,
             )
+
+    def test_rejects_invalid_quorum(self) -> None:
+        providers = [
+            FakeProvider("first"),
+            FakeProvider("second"),
+            FakeProvider("third"),
+        ]
+
+        with self.assertRaisesRegex(ValueError, "at least 1"):
+            BlackbirdCoordinator(providers, minimum_responses=0)
+
+        with self.assertRaisesRegex(ValueError, "exactly 3"):
+            BlackbirdCoordinator(providers, minimum_responses=2)
 
 
 if __name__ == "__main__":

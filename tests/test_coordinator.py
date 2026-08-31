@@ -127,8 +127,11 @@ class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rejects_blank_prompt(self) -> None:
         coordinator = BlackbirdCoordinator(
-            [FakeProvider("fake")],
-            minimum_responses=1,
+            [
+                FakeProvider("first"),
+                FakeProvider("second"),
+                FakeProvider("third"),
+            ],
         )
 
         with self.assertRaisesRegex(ValueError, "must not be empty"):
@@ -164,20 +167,35 @@ class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
     def test_rejects_invalid_confidence_threshold(self) -> None:
         with self.assertRaisesRegex(ValueError, "between 0.0 and 1.0"):
             BlackbirdCoordinator(
-                [FakeProvider("fake")],
+                [
+                    FakeProvider("first"),
+                    FakeProvider("second"),
+                    FakeProvider("third"),
+                ],
                 confidence_threshold=1.1,
-                minimum_responses=1,
             )
 
-    def test_rejects_impossible_quorum(self) -> None:
+    def test_requires_exactly_three_providers(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            "cannot exceed",
+            "Exactly three providers",
         ):
             BlackbirdCoordinator(
                 [FakeProvider("fake")],
-                minimum_responses=3,
             )
+
+    def test_rejects_invalid_quorum(self) -> None:
+        providers = [
+            FakeProvider("first"),
+            FakeProvider("second"),
+            FakeProvider("third"),
+        ]
+
+        with self.assertRaisesRegex(ValueError, "at least 1"):
+            BlackbirdCoordinator(providers, minimum_responses=0)
+
+        with self.assertRaisesRegex(ValueError, "exactly 3"):
+            BlackbirdCoordinator(providers, minimum_responses=2)
 
     def test_ballot_prompt_anonymizes_provider_identity(self) -> None:
         responses = [
@@ -326,56 +344,24 @@ class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             {"A": 2, "B": 1, "C": 0},
         )
 
-    def test_confidence_breaks_three_way_vote_tie(self) -> None:
-        candidates = {
-            "A": ReasoningResponse(
-                provider="first",
-                self_confidence=0.8,
-                response="Alpha",
-            ),
-            "B": ReasoningResponse(
-                provider="second",
-                self_confidence=0.9,
-                response="Beta",
-            ),
-            "C": ReasoningResponse(
-                provider="third",
-                self_confidence=0.7,
-                response="Gamma",
-            ),
-        }
-        ballots = [
-            ProviderBallot(
-                voter="first",
-                candidate_id="A",
-                selection_confidence=0.6,
-                rationale="A",
-            ),
-            ProviderBallot(
-                voter="second",
-                candidate_id="B",
-                selection_confidence=0.95,
-                rationale="B",
-            ),
-            ProviderBallot(
-                voter="third",
-                candidate_id="C",
-                selection_confidence=0.7,
-                rationale="C",
-            ),
-        ]
+    async def test_three_way_vote_has_no_winner(self) -> None:
+        first = FakeProvider("first", 0.80, "A", 0.6)
+        second = FakeProvider("second", 0.95, "B", 0.99)
+        third = FakeProvider("third", 0.70, "C", 0.7)
+        coordinator = BlackbirdCoordinator([first, second, third])
 
-        winner, vote_counts = (
-            BlackbirdCoordinator._select_winning_candidate(
-                candidates,
-                ballots,
-            )
-        )
+        with patch(
+            "blackbird.coordinator.random.SystemRandom.shuffle",
+            return_value=None,
+        ):
+            result = await coordinator.reason("test prompt")
 
-        self.assertEqual(winner, "B")
+        self.assertIsNone(result.winning_candidate_id)
+        self.assertFalse(result.threshold_met)
+        self.assertEqual(result.vote_counts, {"A": 1, "B": 1, "C": 1})
         self.assertEqual(
-            vote_counts,
-            {"A": 1, "B": 1, "C": 1},
+            result.selected_response,
+            result.rounds[1].selected_response,
         )
 
     async def test_ballot_failure_prevents_quorum(self) -> None:
