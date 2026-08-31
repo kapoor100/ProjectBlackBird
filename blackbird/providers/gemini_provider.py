@@ -5,6 +5,10 @@ from typing import Literal
 from blackbird.contracts.reasoning_response import ReasoningResponse
 from blackbird.providers.base import BaseProvider
 from blackbird.contracts.provider_ballot import ProviderBallot
+from blackbird.providers.prompts import (
+    REASONING_SYSTEM_PROMPT,
+    VOTING_SYSTEM_PROMPT,
+)
 
 
 class GeminiReasoningResult(BaseModel):
@@ -33,10 +37,7 @@ class GeminiProvider(BaseProvider):
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=(
-                    "Analyze the user's request carefully. "
-                    "Return a concise, evidence-based answer and a calibrated "
-                    "self-confidence score between 0.0 and 1.0. "
-                    "Keep the response under 700 words."
+                    REASONING_SYSTEM_PROMPT
                 ),
                 response_mime_type="application/json",
                 response_schema=GeminiReasoningResult,
@@ -65,12 +66,7 @@ class GeminiProvider(BaseProvider):
             model=self.model,
             contents=prompt,
             config=types.GenerateContentConfig(
-                system_instruction=(
-                    "Act as an impartial evaluator. Review the anonymous candidates "
-                    "and select the best-supported answer. Return only the requested "
-                    "structured ballot with a selection confidence between 0.0 and 1.0 "
-                    "and a concise rationale."
-                ),
+                system_instruction=VOTING_SYSTEM_PROMPT,
                 response_mime_type="application/json",
                 response_schema=GeminiBallotResult,
                 automatic_function_calling=(
