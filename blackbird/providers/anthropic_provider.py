@@ -1,6 +1,10 @@
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel, Field
 from typing import Literal
+from blackbird.providers.prompts import (
+    REASONING_SYSTEM_PROMPT,
+    VOTING_SYSTEM_PROMPT,
+)
 from blackbird.contracts.reasoning_response import ReasoningResponse
 from blackbird.providers.base import BaseProvider
 from blackbird.contracts.provider_ballot import ProviderBallot
@@ -30,12 +34,7 @@ class AnthropicProvider(BaseProvider):
         message = await self.client.messages.parse(
             model=self.model,
             max_tokens=2048,
-            system=(
-                "Analyze the user's request carefully. "
-                "Return a concise answer and a confidence score "
-                "between 0.0 and 1.0. "
-                "Keep the response under 700 words."
-            ),
+            system=REASONING_SYSTEM_PROMPT,
             messages=[
                 {
                     "role": "user",
@@ -60,12 +59,7 @@ class AnthropicProvider(BaseProvider):
         message = await self.client.messages.parse(
             model=self.model,
             max_tokens=512,
-            system=(
-                "Act as an impartial evaluator. Review the anonymous candidates "
-                "and select the best-supported answer. Return only the requested "
-                "structured ballot with a selection confidence between 0.0 and 1.0 "
-                "and a concise rationale."
-            ),
+            system=VOTING_SYSTEM_PROMPT,
             messages=[
                 {
                     "role": "user",

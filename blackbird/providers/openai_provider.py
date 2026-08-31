@@ -4,6 +4,10 @@ from typing import Literal
 from blackbird.contracts.reasoning_response import ReasoningResponse
 from blackbird.providers.base import BaseProvider
 from blackbird.contracts.provider_ballot import ProviderBallot
+from blackbird.providers.prompts import (
+    REASONING_SYSTEM_PROMPT,
+    VOTING_SYSTEM_PROMPT,
+)
 
 
 class OpenAIReasoningResult(BaseModel):
@@ -26,12 +30,7 @@ class OpenAIProvider(BaseProvider):
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "Analyze the user's request carefully. "
-                        "Return a concise, evidence-based answer and a calibrated "
-                        "self-confidence score between 0.0 and 1.0. "
-                        "Keep the response under 700 words."
-                    ),
+                    "content": REASONING_SYSTEM_PROMPT
                 },
                 {
                     "role": "user",
@@ -61,15 +60,7 @@ class OpenAIProvider(BaseProvider):
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "Act as an impartial anonymous evaluator. "
-                        "Evaluate candidate answers only for correctness, "
-                        "evidence, relevance, and completeness. "
-                        "Do not guess who authored them. Select exactly one "
-                        "candidate: A, B, or C. Return the candidate ID, "
-                        "a calibrated selection confidence between 0.0 and "
-                        "1.0, and a concise rationale."
-                    ),
+                    "content": VOTING_SYSTEM_PROMPT
                 },
                 {
                     "role": "user",
