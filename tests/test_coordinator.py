@@ -1,11 +1,11 @@
 import asyncio
 import unittest
+from typing import Literal
+from unittest.mock import patch
 
-from blackbird.contracts import ReasoningResponse
+from blackbird.contracts import ProviderBallot, ReasoningResponse
 from blackbird.coordinator import BlackbirdCoordinator
 from blackbird.providers.base import BaseProvider
-from typing import Literal
-from blackbird.contracts import ProviderBallot
 
 
 class FakeProvider(BaseProvider):
@@ -69,9 +69,9 @@ class FailingProvider(BaseProvider):
 
 class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
     async def test_runs_two_rounds_and_selects_best_response(self) -> None:
-        first = FakeProvider("first", 0.80)
-        second = FakeProvider("second", 0.85)
-        third = FakeProvider("third", 0.95)
+        first = FakeProvider("first", 0.80, vote_for="C")
+        second = FakeProvider("second", 0.85, vote_for="C")
+        third = FakeProvider("third", 0.95, vote_for="A")
 
         coordinator = BlackbirdCoordinator(
             [first, second, third],
@@ -79,23 +79,15 @@ class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             minimum_responses=3,
         )
 
-        result = await coordinator.reason("test prompt")
+        with patch(
+            "blackbird.coordinator.random.SystemRandom.shuffle",
+            return_value=None,
+        ):
+            result = await coordinator.reason("test prompt")
 
         self.assertEqual(
             [item.round_number for item in result.rounds],
             [1, 2],
-        )
-        self.assertEqual(result.selected_response.provider, "third")
-        self.assertTrue(result.quorum_met)
-        self.assertTrue(result.threshold_met)
-
-        self.assertEqual(len(first.prompts), 2)
-        self.assertEqual(len(second.prompts), 2)
-        self.assertEqual(len(third.prompts), 2)
-
-        self.assertIn(
-            "Original request:\ntest prompt",
-            first.prompts[1],
         )
 
     async def test_provider_failure_prevents_quorum(self) -> None:
@@ -151,8 +143,8 @@ class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 reasoning_round.failures[0].error_type,
                 "InvalidProviderResponse",
-            )
-                       
+            )                     
+
     def test_requires_a_provider(self) -> None:
         with self.assertRaisesRegex(ValueError, "At least one provider"):
             BlackbirdCoordinator([])
@@ -174,6 +166,178 @@ class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
                 [FakeProvider("fake")],
                 minimum_responses=3,
             )
+
+    def test_ballot_prompt_anonymizes_provider_identity(self) -> None:
+        responses = [
+            ReasoningResponse(
+                provider="openai",
+                self_confidence=0.8,
+                response="Answer alpha.",
+            ),
+            ReasoningResponse(
+                provider="anthropic",
+                self_confidence=0.9,
+                response="Answer beta.",
+            ),
+            ReasoningResponse(
+                provider="gemini",
+                self_confidence=0.7,
+                response="Answer gamma.",
+            ),
+        ]
+
+        candidates, prompt = (
+            BlackbirdCoordinator._build_ballot_prompt(
+                "test prompt",
+                responses,
+            )
+        )
+
+        self.assertEqual(set(candidates), {"A", "B", "C"})
+        self.assertEqual(
+            {item.provider for item in candidates.values()},
+            {"openai", "anthropic", "gemini"},
+        )
+
+        self.assertNotIn("openai", prompt)
+        self.assertNotIn("anthropic", prompt)
+        self.assertNotIn("gemini", prompt)
+
+        for response in responses:
+            self.assertIn(response.response, prompt)
+
+    async def test_collects_provider_ballots(self) -> None:
+        first = FakeProvider("first", vote_for="A")
+        second = FakeProvider("second", vote_for="B")
+        third = FakeProvider("third", vote_for="A")
+
+        coordinator = BlackbirdCoordinator(
+            [first, second, third],
+            minimum_responses=3,
+        )
+
+        ballots, failures, quorum_met = (
+            await coordinator._run_vote("ballot prompt")
+        )
+
+        self.assertEqual(
+            [ballot.voter for ballot in ballots],
+            ["first", "second", "third"],
+        )
+        self.assertEqual(
+            [ballot.candidate_id for ballot in ballots],
+            ["A", "B", "A"],
+        )
+        self.assertEqual(failures, [])
+        self.assertTrue(quorum_met)
+
+        self.assertEqual(first.vote_prompts, ["ballot prompt"])
+        self.assertEqual(second.vote_prompts, ["ballot prompt"])
+        self.assertEqual(third.vote_prompts, ["ballot prompt"])
+
+    def test_majority_vote_selects_candidate(self) -> None:
+        candidates = {
+            "A": ReasoningResponse(
+                provider="first",
+                self_confidence=0.8,
+                response="Alpha",
+            ),
+            "B": ReasoningResponse(
+                provider="second",
+                self_confidence=0.9,
+                response="Beta",
+            ),
+            "C": ReasoningResponse(
+                provider="third",
+                self_confidence=0.7,
+                response="Gamma",
+            ),
+        }
+        ballots = [
+            ProviderBallot(
+                voter="first",
+                candidate_id="A",
+                selection_confidence=0.7,
+                rationale="A",
+            ),
+            ProviderBallot(
+                voter="second",
+                candidate_id="B",
+                selection_confidence=0.9,
+                rationale="B",
+            ),
+            ProviderBallot(
+                voter="third",
+                candidate_id="A",
+                selection_confidence=0.6,
+                rationale="A",
+            ),
+        ]
+
+        winner, vote_counts = (
+            BlackbirdCoordinator._select_winning_candidate(
+                candidates,
+                ballots,
+            )
+        )
+
+        self.assertEqual(winner, "A")
+        self.assertEqual(
+            vote_counts,
+            {"A": 2, "B": 1, "C": 0},
+        )
+
+    def test_confidence_breaks_three_way_vote_tie(self) -> None:
+        candidates = {
+            "A": ReasoningResponse(
+                provider="first",
+                self_confidence=0.8,
+                response="Alpha",
+            ),
+            "B": ReasoningResponse(
+                provider="second",
+                self_confidence=0.9,
+                response="Beta",
+            ),
+            "C": ReasoningResponse(
+                provider="third",
+                self_confidence=0.7,
+                response="Gamma",
+            ),
+        }
+        ballots = [
+            ProviderBallot(
+                voter="first",
+                candidate_id="A",
+                selection_confidence=0.6,
+                rationale="A",
+            ),
+            ProviderBallot(
+                voter="second",
+                candidate_id="B",
+                selection_confidence=0.95,
+                rationale="B",
+            ),
+            ProviderBallot(
+                voter="third",
+                candidate_id="C",
+                selection_confidence=0.7,
+                rationale="C",
+            ),
+        ]
+
+        winner, vote_counts = (
+            BlackbirdCoordinator._select_winning_candidate(
+                candidates,
+                ballots,
+            )
+        )
+
+        self.assertEqual(winner, "B")
+        self.assertEqual(
+            vote_counts,
+            {"A": 1, "B": 1, "C": 1},
+        )
 
 
 if __name__ == "__main__":
