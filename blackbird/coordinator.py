@@ -28,11 +28,14 @@ class BlackbirdCoordinator:
         if minimum_responses < 1:
             raise ValueError("minimum_responses must be at least 1.")
 
-        if minimum_responses > len(providers):
+        if minimum_responses != 3:
             raise ValueError(
-                "minimum_responses cannot exceed "
-                "the configured provider count."
+                "minimum_responses must be exactly 3."
             )
+
+        if len(providers) != 3:
+            raise ValueError("Exactly three providers are required.")
+
         self.providers = providers
         self.confidence_threshold = confidence_threshold
         self.minimum_responses = minimum_responses
@@ -320,11 +323,6 @@ class BlackbirdCoordinator:
             candidate_id: 0
             for candidate_id in candidates
         }
-        confidence_totals = {
-            candidate_id: 0.0
-            for candidate_id in candidates
-        }
-
         for ballot in ballots:
             if ballot.candidate_id not in candidates:
                 raise ValueError(
@@ -332,9 +330,6 @@ class BlackbirdCoordinator:
                 )
 
             vote_counts[ballot.candidate_id] += 1
-            confidence_totals[ballot.candidate_id] += (
-                ballot.selection_confidence
-            )
 
         if not ballots:
             return None, vote_counts
@@ -349,18 +344,4 @@ class BlackbirdCoordinator:
         if len(vote_leaders) == 1:
             return vote_leaders[0], vote_counts
 
-        highest_confidence = max(
-            confidence_totals[candidate_id]
-            for candidate_id in vote_leaders
-        )
-        confidence_leaders = [
-            candidate_id
-            for candidate_id in vote_leaders
-            if confidence_totals[candidate_id]
-            == highest_confidence
-        ]
-
-        if len(confidence_leaders) != 1:
-            return None, vote_counts
-
-        return confidence_leaders[0], vote_counts
+        return None, vote_counts
