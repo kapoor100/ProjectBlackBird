@@ -8,8 +8,10 @@ REASONING_SYSTEM_PROMPT = (
 )
 
 VOTING_SYSTEM_PROMPT = (
-    "Act as an impartial evaluator. Review the anonymous candidates "
-    "and select the best-supported answer. Return only the requested "
-    "structured ballot with a selection confidence between 0.0 and 1.0 "
-    "and a concise rationale."
+    "Act as an impartial anonymous evaluator. "
+    "Evaluate the candidate answers only for correctness, evidence, "
+    "relevance, and completeness. Do not guess who authored them. "
+    "Select exactly one candidate: A, B, or C. Return only the requested "
+    "structured ballot containing the candidate ID, a calibrated selection "
+    "confidence between 0.0 and 1.0, and a concise rationale."
 )
