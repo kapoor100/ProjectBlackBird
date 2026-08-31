@@ -47,7 +47,7 @@ def fake_result() -> BlackbirdResult:
 
     return BlackbirdResult(
         rounds=[reasoning_round],
-        selected_response=candidates["A"],
+        selected_response=candidates["C"],
         candidates=candidates,
         ballots=[
             ProviderBallot(
