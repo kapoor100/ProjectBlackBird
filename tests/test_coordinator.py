@@ -45,6 +45,18 @@ class FakeProvider(BaseProvider):
         )
 
 
+class FailingVoter(FakeProvider):
+    async def vote(self, prompt: str) -> ProviderBallot:
+        await asyncio.sleep(0)
+        raise RuntimeError("Simulated ballot failure.")
+
+
+class MalformedBallotProvider(FakeProvider):
+    async def vote(self, prompt: str) -> ProviderBallot:
+        await asyncio.sleep(0)
+        return {"unexpected": "value"}  # type: ignore[return-value]
+
+
 class MalformedProvider(BaseProvider):
     async def reason(self, prompt: str) -> ReasoningResponse:
         await asyncio.sleep(0)
@@ -337,6 +349,58 @@ class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             vote_counts,
             {"A": 1, "B": 1, "C": 1},
+        )
+
+    async def test_ballot_failure_prevents_quorum(self) -> None:
+        coordinator = BlackbirdCoordinator(
+            [
+                FakeProvider("first"),
+                FailingVoter("second"),
+                FakeProvider("third"),
+            ],
+            minimum_responses=3,
+        )
+
+        result = await coordinator.reason("test prompt")
+
+        self.assertFalse(result.voting_quorum_met)
+        self.assertFalse(result.quorum_met)
+        self.assertFalse(result.threshold_met)
+        self.assertEqual(len(result.ballots), 2)
+        self.assertEqual(len(result.voting_failures), 1)
+        self.assertEqual(
+            result.voting_failures[0].provider,
+            "second",
+        )
+        self.assertEqual(
+            result.voting_failures[0].error_type,
+            "RuntimeError",
+        )
+
+    async def test_malformed_ballot_is_isolated(self) -> None:
+        coordinator = BlackbirdCoordinator(
+            [
+                FakeProvider("first"),
+                MalformedBallotProvider("second"),
+                FakeProvider("third"),
+            ],
+            minimum_responses=3,
+        )
+
+        result = await coordinator.reason("test prompt")
+
+        self.assertFalse(result.voting_quorum_met)
+        self.assertFalse(result.quorum_met)
+        self.assertFalse(result.threshold_met)
+        self.assertEqual(len(result.ballots), 2)
+        self.assertEqual(len(result.voting_failures), 1)
+        self.assertEqual(
+            result.voting_failures[0].provider,
+            "second",
+        )
+        self.assertEqual(
+            result.voting_failures[0].error_type,
+            "InvalidProviderBallot",
         )
 
 
