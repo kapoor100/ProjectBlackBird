@@ -247,6 +247,33 @@ class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second.vote_prompts, ["ballot prompt"])
         self.assertEqual(third.vote_prompts, ["ballot prompt"])
 
+    async def test_anonymizes_challenge_round(self) -> None:
+        first = FakeProvider("first")
+        second = FakeProvider("second")
+        third = FakeProvider("third")
+
+        coordinator = BlackbirdCoordinator(
+            [first, second, third],
+            minimum_responses=3,
+        )
+
+        await coordinator.reason("test prompt")
+
+        challenge_prompt = first.prompts[1]
+
+        self.assertNotIn("Provider:", challenge_prompt)
+        self.assertNotIn("Self-confidence:", challenge_prompt)
+        self.assertIn(
+            "Anonymous independent responses:",
+            challenge_prompt,
+        )
+        self.assertIn("Response 1", challenge_prompt)
+        self.assertIn("Response 2", challenge_prompt)
+        self.assertIn("Response 3", challenge_prompt)
+
+        self.assertEqual(challenge_prompt, second.prompts[1])
+        self.assertEqual(challenge_prompt, third.prompts[1])
+
     def test_majority_vote_selects_candidate(self) -> None:
         candidates = {
             "A": ReasoningResponse(
@@ -363,6 +390,7 @@ class BlackbirdCoordinatorTests(unittest.IsolatedAsyncioTestCase):
 
         result = await coordinator.reason("test prompt")
 
+        self.assertIsNone(result.winning_candidate_id)
         self.assertFalse(result.voting_quorum_met)
         self.assertFalse(result.quorum_met)
         self.assertFalse(result.threshold_met)

@@ -5,8 +5,8 @@ from blackbird.contracts.reasoning_response import ReasoningResponse
 from blackbird.providers.base import BaseProvider
 from blackbird.contracts.provider_ballot import ProviderBallot
 
+
 class OpenAIReasoningResult(BaseModel):
-    candidate_id: Literal["A", "B", "C"]
     self_confidence: float = Field(ge=0.0, le=1.0)
     response: str
 
@@ -28,8 +28,9 @@ class OpenAIProvider(BaseProvider):
                     "role": "system",
                     "content": (
                         "Analyze the user's request carefully. "
-                        "Return a concise answer and a confidence score "
-                        "between 0.0 and 1.0."
+                        "Return a concise, evidence-based answer and a calibrated "
+                        "self-confidence score between 0.0 and 1.0. "
+                        "Keep the response under 700 words."
                     ),
                 },
                 {
@@ -96,3 +97,9 @@ class OpenAIProvider(BaseProvider):
             ),
             rationale=message.parsed.rationale,
         )
+
+
+class OpenAIBallotResult(BaseModel):
+    candidate_id: Literal["A", "B", "C"]
+    selection_confidence: float = Field(ge=0.0, le=1.0)
+    rationale: str

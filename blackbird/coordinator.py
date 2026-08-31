@@ -123,16 +123,18 @@ class BlackbirdCoordinator:
     ) -> str:
         responses = "\n\n".join(
             (
-                f"Provider: {response.provider}\n"
-                f"Self-confidence: {response.self_confidence}\n"
-                f"Response:\n{response.response}"
+                f"Response {index}\n"
+                f"Answer:\n{response.response}"
             )
-            for response in previous_round.responses
+            for index, response in enumerate(
+                previous_round.responses,
+                start=1,
+            )
         )
 
         return (
             f"Original request:\n{original_prompt}\n\n"
-            f"Independent responses:\n\n{responses}\n\n"
+            f"Anonymous independent responses:\n\n{responses}\n\n"
             "Critically evaluate the responses above. "
             "Identify agreements, disagreements, unsupported assumptions, "
             "and possible shared errors. Then provide your strongest revised "
@@ -273,10 +275,13 @@ class BlackbirdCoordinator:
 
         winning_candidate_id, vote_counts = (
             self._select_winning_candidate(
-                candidates,
-                ballots,
+                ballots=ballots,
+                candidates=candidates,
             )
         )
+
+        if not voting_quorum_met:
+            winning_candidate_id = None
 
         if winning_candidate_id is None:
             selected_response = second_round.selected_response

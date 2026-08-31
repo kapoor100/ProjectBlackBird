@@ -29,11 +29,12 @@ class AnthropicProvider(BaseProvider):
     async def reason(self, prompt: str) -> ReasoningResponse:
         message = await self.client.messages.parse(
             model=self.model,
-            max_tokens=1024,
+            max_tokens=2048,
             system=(
                 "Analyze the user's request carefully. "
                 "Return a concise answer and a confidence score "
-                "between 0.0 and 1.0."
+                "between 0.0 and 1.0. "
+                "Keep the response under 700 words."
             ),
             messages=[
                 {
@@ -60,13 +61,10 @@ class AnthropicProvider(BaseProvider):
             model=self.model,
             max_tokens=512,
             system=(
-                "Act as an impartial anonymous evaluator. "
-                "Evaluate candidate answers only for correctness, "
-                "evidence, relevance, and completeness. "
-                "Do not guess who authored them. Select exactly one "
-                "candidate: A, B, or C. Return the candidate ID, "
-                "a calibrated selection confidence between 0.0 and "
-                "1.0, and a concise rationale."
+                "Act as an impartial evaluator. Review the anonymous candidates "
+                "and select the best-supported answer. Return only the requested "
+                "structured ballot with a selection confidence between 0.0 and 1.0 "
+                "and a concise rationale."
             ),
             messages=[
                 {
