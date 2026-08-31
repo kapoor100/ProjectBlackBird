@@ -9,7 +9,11 @@ from blackbird.coordinator import BlackbirdCoordinator
 from blackbird.providers.anthropic_provider import AnthropicProvider
 from blackbird.providers.gemini_provider import GeminiProvider
 from blackbird.providers.openai_provider import OpenAIProvider
-from blackbird.trials import TrialRecorder, build_trial_record
+from blackbird.trials import (
+    TrialRecorder,
+    build_failed_trial_record,
+    build_trial_record,
+)
 
 
 DEFAULT_PROMPT = (
@@ -59,11 +63,48 @@ async def main(args: argparse.Namespace) -> None:
     }
     recorder = TrialRecorder(args.output)
 
+    await run_trials(
+        coordinator=coordinator,
+        provider_models=provider_models,
+        recorder=recorder,
+        args=args,
+    )
+
+
+async def run_trials(
+    *,
+    coordinator: BlackbirdCoordinator,
+    provider_models: dict[str, str],
+    recorder: TrialRecorder,
+    args: argparse.Namespace,
+) -> None:
+    successful_trials = 0
+    failed_trials = 0
+
     for run_number in range(1, args.runs + 1):
         start = perf_counter()
-        result = await coordinator.reason(args.prompt)
-        elapsed = perf_counter() - start
 
+        try:
+            result = await coordinator.reason(args.prompt)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            elapsed = perf_counter() - start
+            record = build_failed_trial_record(
+                original_prompt=args.prompt,
+                provider_models=provider_models,
+                elapsed_seconds=elapsed,
+                error=error,
+            )
+            recorder.append(record)
+            failed_trials += 1
+
+            print(f"\n========== TRIAL {run_number}/{args.runs} ==========")
+            print(f"Trial ID: {record.trial_id}")
+            print(f"FAILED: {record.error_type}: {record.error_message}")
+            continue
+
+        elapsed = perf_counter() - start
         record = build_trial_record(
             original_prompt=args.prompt,
             provider_models=provider_models,
@@ -71,6 +112,7 @@ async def main(args: argparse.Namespace) -> None:
             result=result,
         )
         recorder.append(record)
+        successful_trials += 1
 
         print(f"\n========== TRIAL {run_number}/{args.runs} ==========")
         print(f"Trial ID: {record.trial_id}")
@@ -136,7 +178,10 @@ async def main(args: argparse.Namespace) -> None:
         print("\nSelected response:")
         print(result.selected_response.response)
 
-    print(f"\nRecorded {args.runs} trial(s) in {args.output}")
+    print(
+        f"\nRecorded {args.runs} trial(s) in {args.output}: "
+        f"{successful_trials} successful, {failed_trials} failed"
+    )
 
 
 if __name__ == "__main__":

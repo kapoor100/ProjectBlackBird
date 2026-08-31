@@ -1,9 +1,15 @@
+import argparse
+import asyncio
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import timezone
 from pathlib import Path
 from uuid import UUID
+
+from pydantic import ValidationError
 
 from blackbird.contracts import (
     BlackbirdResult,
@@ -14,9 +20,11 @@ from blackbird.contracts import (
 )
 from blackbird.trials import (
     TrialRecorder,
+    build_failed_trial_record,
     build_trial_record,
     calculate_self_vote_count,
 )
+from blackbird.live_election import run_trials
 
 
 def fake_result() -> BlackbirdResult:
@@ -134,6 +142,117 @@ class TrialRecordTests(unittest.TestCase):
         self.assertEqual(payloads[0]["trial_id"], str(first_record.trial_id))
         self.assertEqual(payloads[1]["trial_id"], str(second_record.trial_id))
         self.assertNotEqual(payloads[0]["trial_id"], payloads[1]["trial_id"])
+
+    def test_failed_attempt_is_serialized(self) -> None:
+        record = build_failed_trial_record(
+            original_prompt="Trial prompt",
+            provider_models={"provider": "model"},
+            elapsed_seconds=0.5,
+            error=RuntimeError("coordinator failed"),
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "trials.jsonl"
+            TrialRecorder(output_path).append(record)
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertIsNone(payload["result"])
+        self.assertEqual(payload["error_type"], "RuntimeError")
+        self.assertEqual(payload["error_message"], "coordinator failed")
+        self.assertEqual(payload["self_vote_count"], 0)
+
+    def test_rejects_ambiguous_outcomes(self) -> None:
+        successful_record = fake_record()
+        ambiguous_payload = successful_record.model_dump()
+        ambiguous_payload.update(
+            error_type="RuntimeError",
+            error_message="bad",
+        )
+
+        with self.assertRaises(ValidationError):
+            TrialRecord.model_validate(ambiguous_payload)
+
+        with self.assertRaises(ValidationError):
+            TrialRecord(
+                trial_id=successful_record.trial_id,
+                timestamp=successful_record.timestamp,
+                original_prompt="Trial prompt",
+                provider_models={"provider": "model"},
+                elapsed_seconds=0.5,
+                error_type="RuntimeError",
+                error_message="bad",
+                self_vote_count=1,
+            )
+
+
+class SequencedCoordinator:
+    def __init__(self) -> None:
+        self.attempts = 0
+
+    async def reason(self, prompt: str) -> BlackbirdResult:
+        self.attempts += 1
+
+        if self.attempts == 1:
+            raise RuntimeError("first attempt failed")
+
+        return fake_result()
+
+
+class TrialHarnessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_later_trial_runs_after_earlier_failure(self) -> None:
+        coordinator = SequencedCoordinator()
+
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "trials.jsonl"
+            args = argparse.Namespace(
+                prompt="Trial prompt",
+                runs=2,
+                output=output_path,
+            )
+
+            with redirect_stdout(io.StringIO()) as output:
+                await run_trials(
+                    coordinator=coordinator,  # type: ignore[arg-type]
+                    provider_models={"provider": "model"},
+                    recorder=TrialRecorder(output_path),
+                    args=args,
+                )
+
+            payloads = [
+                json.loads(line)
+                for line in output_path.read_text(encoding="utf-8").splitlines()
+            ]
+
+        self.assertEqual(coordinator.attempts, 2)
+        self.assertEqual(len(payloads), 2)
+        self.assertEqual(payloads[0]["error_type"], "RuntimeError")
+        self.assertIsNone(payloads[0]["result"])
+        self.assertIsNone(payloads[1]["error_type"])
+        self.assertIsNotNone(payloads[1]["result"])
+        self.assertIn("1 successful, 1 failed", output.getvalue())
+
+    async def test_cancellation_is_not_recorded_or_swallowed(self) -> None:
+        class CancelledCoordinator:
+            async def reason(self, prompt: str) -> BlackbirdResult:
+                raise asyncio.CancelledError
+
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "trials.jsonl"
+            args = argparse.Namespace(
+                prompt="Trial prompt",
+                runs=1,
+                output=output_path,
+            )
+
+            with self.assertRaises(asyncio.CancelledError):
+                await run_trials(
+                    coordinator=CancelledCoordinator(),  # type: ignore[arg-type]
+                    provider_models={"provider": "model"},
+                    recorder=TrialRecorder(output_path),
+                    args=args,
+                )
+
+            self.assertFalse(output_path.exists())
 
 
 if __name__ == "__main__":

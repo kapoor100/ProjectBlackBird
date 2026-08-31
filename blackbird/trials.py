@@ -33,6 +33,25 @@ def build_trial_record(
     )
 
 
+def build_failed_trial_record(
+    *,
+    original_prompt: str,
+    provider_models: dict[str, str],
+    elapsed_seconds: float,
+    error: Exception,
+) -> TrialRecord:
+    return TrialRecord(
+        trial_id=uuid4(),
+        timestamp=datetime.now(timezone.utc),
+        original_prompt=original_prompt,
+        provider_models=provider_models,
+        elapsed_seconds=elapsed_seconds,
+        error_type=type(error).__name__,
+        error_message=str(error) or repr(error),
+        self_vote_count=0,
+    )
+
+
 class TrialRecorder:
     def __init__(self, output_path: str | Path) -> None:
         self.output_path = Path(output_path)
